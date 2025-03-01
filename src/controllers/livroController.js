@@ -1,73 +1,125 @@
-import { autor } from "../models/Autor.js";
-import livro from "../models/Livro.js";
-
+import naoEncontrado from "../erros/naoEncontrado.js";
+import {autores, livros} from "../models/index.js";
 class LivroController {
 
-    static async listarLivros (req, res) {
-        try {
-            const listaLivros = await livro.find({});
-            res.status(200).json(listaLivros);
-        } catch (erro) {
-            res.status(500).json({messag : `${erro.message}  - falha na requisição `})
-        }
+  static listarLivros = async (req, res,next) => {
+    try {
+      const buscaLivros = livros.find();
 
-    };
+      req.resultado = buscaLivros;
 
-    static async listarLivroPorId (req, res) {
-        try {
-            const id = req.params.id;
-            const livroEncontrado = await livro.findById(id);
-            res.status(200).json(livroEncontrado);
-        } catch (erro) {
-            res.status(500).json({messag : `${erro.message}  - falha na requisição do livro `})
-        }
-
-    };
-    
-    
-    static async cadastrarLivro (req,res) {
-        const novoLivro = (req.body);
-        try {
-            const autorEncontrado = await autor.findById(novoLivro.autor);
-            const livroCompleto = { ...novoLivro, autor: { ...autorEncontrado._doc }}
-            const livroCriado = await livro.create(livroCompleto);
-            res.status(201).json({ message: "criado com sucesso", livro : novoLivro});
-        }catch (erro){
-            res.status(500).json({ message: `${erro.message} - falha ao cadastrar livro`});
-        }
+      next();
+    } catch (erro) {
+      next(erro);
     }
-    static async atualizarLivro (req, res) {
-        try {
-            const id = req.params.id;
-            await livro.findByIdAndUpdate(id, req.body);
-            res.status(200).json({message : "livro atualizado"});
-        } catch (erro) {
-            res.status(500).json({messag : `${erro.message}  - falha na atualização do livro `})
-        }
+  }
 
-    };
-    static async excluirLivro (req, res) {
-        try {
-            const id = req.params.id;
-            await livro.findByIdAndDelete(id);
-            res.status(200).json({message : "livro excluido"});
-        } catch (erro) {
-            res.status(500).json({message : `${erro.message}  - falha na exclusão do livro `})
-        }
+  static listarLivroPorId = async (req, res, next) => {
+    try {
+      const id = req.params.id;
 
-    };
+      const livroResultados = await livros.findById(id)
+        .populate("autor", "nome")
+        .exec();
+      if(livroResultados) {
+        res.status(200).send(livroResultados);
+      } else {
+        next(new naoEncontrado("Id do livro não localizado"))
+      }
+    } catch (erro) {
+      next(erro);
+    }
+  }
 
-    static async listarLivrosPorEditora (req,res) {
-        const editora = req.query.editora;
-        try {
-            const livrosPorEditora = await livro.find({editora : editora});;
-            res.status(200).json(livrosPorEditora)
+  static cadastrarLivro = async (req, res, next) => {
+    try {
+      let livro = new livros(req.body);
 
-        }catch (erro) {
-            res.status(500).json( { message : `${erro.message} - falha na busca`})
-        }
+      const livroResultado = await livro.save();
+      res.status(201).send(livroResultado.toJSON());
+    } catch (erro) {
+      next(erro);
+    }
+  }
+
+  static atualizarLivro = async (req, res, next) => {
+    try {
+      const id = req.params.id;
+      const livroResultado = await livros.findById(id);
+      if(livroResultado) {
+        await livros.findByIdAndUpdate(id, {$set: req.body});
+        res.status(200).send({message: "Livro atualizado com sucesso"});
+      } else {
+        next(new naoEncontrado("Id do livro não localizado"))
+      }
+     
+    } catch (erro) {
+      next(erro);
+  }
+}
+  static excluirLivro = async (req, res, next) => {
+    try {
+      const id = req.params.id;
+      const livroResultado = await livros.findById(id);
+      if(livroResultado) {
+        await livros.findByIdAndDelete(id);
+        res.status(200).send({message: "Livro removido com sucesso"});
+      } else {
+        next(new naoEncontrado("Id do livro não localizado"))
+      }
+    } catch (erro) {
+      next(erro);
+    }
+  }
+
+  static listarLivroPorFiltro = async (req, res, next) => {
+    try {
+      const busca = await processaBusca(req.query);
+
+      if(busca !== null) {
+        const livrosResultado = livros
+        .find(busca)  
+        .populate("autor");
+
+        req.resultado = livrosResultado;
+        next();
+    } else {
+      res.status(200).send([]);
+    }
+  }
+    catch (erro) {
+      next(erro);
+    }
+  }
+
+
+
+}
+async function processaBusca(parametros) {
+  const {editora, titulo, minPaginas, maxPaginas, nomeAutor} = parametros;
+
+  let busca = {};
+
+  if (editora) busca.editora = editora;
+  if (titulo) busca.titulo = {$regex: titulo, $options: "i"};
+
+  if (minPaginas || maxPaginas) busca.numeroPaginas = {};
+  
+  if(minPaginas) busca.numeroPaginas = {$gte: minPaginas};
+  if(maxPaginas) busca.numeroPaginas = {$lte: maxPaginas};
+
+  if(nomeAutor) {
+    const autor = await autores.findOne({ nome: nomeAutor });
+
+    if(autor !== null) {
+    busca.autor = autor._id;
+    } else {
+      busca = null;
     }
 
-};
+  }
 
-export default LivroController;
+  return busca;
+}
+
+export default LivroController
